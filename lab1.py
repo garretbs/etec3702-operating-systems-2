@@ -1,58 +1,41 @@
-import random 
- 
-class MontyHall:
-	def __init__(self):
-		self.reset_doors()
+import random
+import threading
+
+
+
+def monty_hall(strategy):
+	win=0
+	total_plays = 10000
+	for trials in range(total_plays):
+		#the winning door
+		winning = random.randrange(3)
+		#the player's choice
+		pick = random.randrange(3)
+		#the door Monty opens
+		open_ = random.choice( list(set([0,1,2]) - set([winning]) - set([pick]) ) )
 		
-	def reset_doors(self):
-		self.doors = [False] * 3
-		self.doors[self.choose_random_door()] = True
+		#the remaining door
+		remaining = (set([0,1,2]) - set([pick]) - set([open_])).pop()
 		
-	def choose_random_door(self):
-		return random.randint(0, 2)
- 
-	def select_door(self):
-		self.selected_door = self.choose_random_door()
- 
-	def open_door(self):
-		door_to_open = self.choose_random_door()
-		while door_to_open == self.selected_door or self.doors[door_to_open]:
-			door_to_open = self.choose_random_door()
-		self.opened_door = door_to_open
- 
-	def switch_door(self):
-		self.selected_door = 3 - self.selected_door - self.opened_door
+		if strategy == 0:
+			#strategy 0: Stand pat.
+			pass 
+		elif strategy == 1:
+			#strategy 1: Flip a coin, choose between two closed doors
+			pick = random.choice([pick,remaining])
+		elif strategy == 2:
+			#strategy 2: Always switch
+			pick = remaining 
+
+		if winning == pick:
+			win+=1
 		
-	def stay_with_door(self):
-		self.reset_doors()
-		self.select_door()
-		self.open_door()
-		return self.doors[self.selected_door]
-		
-	def always_switch(self):
-		self.reset_doors()
-		self.select_door()
-		self.open_door()
-		self.switch_door()
-		return self.doors[self.selected_door]
-		
-	def sometimes_switch(self):
-		self.reset_doors()
-		self.select_door()
-		self.open_door()
-		if random.randint(0, 1) == 1:
-			self.switch_door()
-		return self.doors[self.selected_door]
- 
-total_plays = 10000
-stay_wins = 0
-some_wins = 0
-switch_wins = 0
-monty = MontyHall()
-for i in range(total_plays):
-	stay_wins += 1 if monty.stay_with_door() else 0
-	some_wins += 1 if monty.sometimes_switch() else 0
-	switch_wins += 1 if monty.always_switch() else 0
-print("Keep choice: \t\t", 100 * stay_wins / total_plays, "%")
-print("Sometimes change: \t", 100 * some_wins / total_plays, "%")
-print("Always switch: \t\t", 100 * switch_wins / total_plays, "%")
+	print("Strategy",strategy,win/total_plays*100,"%")
+
+threads = []
+for i in range(3):
+	t = threading.Thread(target = monty_hall, args=[i])
+	t.start()
+	threads.append(t)
+for thread in threads:
+	thread.join()
