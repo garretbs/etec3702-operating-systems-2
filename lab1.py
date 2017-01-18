@@ -1,12 +1,35 @@
 import random
 import threading
+import queue
 
+wins_queue = []
+plays_queue = []
+total_plays = 10000
+num_sub_threads = 4
+
+def create_sub_threads(strategy):
+	wins = 0
+	plays = 0
+	
+	sub_threads = []
+	for i in range(num_sub_threads):
+		sub_thread = threading.Thread(target = monty_hall, args=[strategy])
+		sub_thread.start()
+		sub_threads.append(sub_thread)
+	for sub_thread in sub_threads:
+		sub_thread.join()
+		
+	while plays < total_plays:
+		plays += plays_queue[strategy].get()
+	while wins_queue[strategy].qsize() > 0:
+		wins += wins_queue[strategy].get()
+		
+	print("Strategy",strategy,wins/total_plays*100,"%")
 
 
 def monty_hall(strategy):
-	win=0
-	total_plays = 10000
-	for trials in range(total_plays):
+	sub_plays = (int) (total_plays/num_sub_threads)
+	for trials in range(sub_plays):
 		#the winning door
 		winning = random.randrange(3)
 		#the player's choice
@@ -28,14 +51,16 @@ def monty_hall(strategy):
 			pick = remaining 
 
 		if winning == pick:
-			win+=1
-		
-	print("Strategy",strategy,win/total_plays*100,"%")
+			wins_queue[strategy].put(1)
+		plays_queue[strategy].put(1)
+	
 
 threads = []
 for i in range(3):
-	t = threading.Thread(target = monty_hall, args=[i])
+	wins_queue.append(queue.Queue())
+	plays_queue.append(queue.Queue())
+	t = threading.Thread(target = create_sub_threads, args=[i])
 	t.start()
-	threads.append(t)
+	threads.append(t)	
 for thread in threads:
 	thread.join()
