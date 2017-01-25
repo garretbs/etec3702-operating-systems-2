@@ -1,0 +1,74 @@
+<HTML>
+<head>
+<meta charset=utf8>
+<style>
+body {
+    background: black;
+}
+img {
+    border: 1px solid cyan;
+}
+</style>
+</head>
+<body>
+   
+<div style='float: right; 
+    background: white; box-shadow: 0em 0em 0.4em 0.4em rgba(255,255,255,1);
+    margin-top: 1em;
+    margin-right: 1em;'>
+    Iterations: <input id='maxiter' value=200 size=5 onchange='compute()'>
+    <br>
+    Use left/right mouse to zoom in/out</div>
+    
+<img id='fractal' width=765 height=765>
+    
+<script>
+"use strict";
+var centerx = 0;
+var centery = 0;
+var halfsize = 2;
+function main(){
+    var img = document.getElementById("fractal")
+    img.addEventListener("mousedown",function(evt){
+        var x = evt.clientX - img.offsetLeft;
+        var y = evt.clientY - img.offsetTop;
+        var pctx = x / img.width;
+        var pcty = y / img.height;
+        var minx = centerx-halfsize;
+        var maxx = centerx+halfsize;
+        var miny = centery-halfsize;
+        var maxy = centery+halfsize;
+        centerx = minx + pctx * (maxx-minx);
+        centery = miny + pcty * (maxy-miny);
+        if( evt.button === 0 )
+            halfsize = 0.8 * halfsize;
+        else
+            halfsize = 1.25 * halfsize;
+        evt.preventDefault();
+        compute();
+        return false;
+    });
+    img.addEventListener("contextmenu",function(ev){
+        ev.preventDefault();
+        return false;
+    });
+    compute();
+}
+
+function compute(){
+    var xmin = centerx-halfsize;
+    var xmax = centerx+halfsize;
+    var ymin = centery-halfsize;
+    var ymax = centery+halfsize;
+    var maxi = parseInt(document.getElementById("maxiter").value,10)
+    var img = document.getElementById("fractal")
+    img.src = "/fractal?xmin="+xmin+"&xmax="+xmax+"&ymin="+ymin+"&ymax="+ymax+"&maxiter="+maxi+"&w="+img.width+"&h="+img.height
+    
+}
+
+main()
+
+</script>
+
+</body>
+</html>
