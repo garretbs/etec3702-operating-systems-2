@@ -2,29 +2,25 @@ package main
 import "etec3702"
 
 func macaque(){
-    etec3702.Delay();
-	macEntry.Acquire()
-    etec3702.Output("Macaque on rope");
-    etec3702.Delay();
-    
-	macLock.Acquire()
-	numMacs++
-	if numMacs == 3{
-		macExit.Release() //let the monkeys run through		
-	}else{
-		macEntry.Release() //if not the third monkey, let another in
+
+	monkLock.Lock()
+	for numBabs > 0 || numMacs >= 3 || totalMacs >= 49{ //don't go while max macaques or any baboons
+		condition.Wait()
 	}
-	macLock.Release()
-	
-	macExit.Acquire()
-	macExit.Release()
+	numMacs+=1
+	totalMacs+=1
+	condition.Broadcast()
+	etec3702.Delay();
+	etec3702.Output("Macaque on rope");
+	monkLock.Unlock()
+
+    monkLock.Lock()
+	numMacs-=1
+	if totalMacs >= 49 && numMacs == 0{
+		totalBabs = 0
+	}
+	condition.Broadcast()
+	etec3702.Delay();
 	etec3702.Output("Macaque off rope");
-	
-	macLock.Acquire()
-	numMacs--
-	if numMacs == 0{
-		macExit.Acquire()
-		babEntry.Release()
-	}
-	macLock.Release()
+	monkLock.Unlock()    
 }
