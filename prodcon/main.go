@@ -1,6 +1,6 @@
 package main
 
-import "etec3702"
+//import "etec3702"
 import "fmt"
 import "os"
 import "regexp"
@@ -9,46 +9,40 @@ import "net/http"
 import "io/ioutil"
 import "sync"
 
-//var rex regexp
-var sitesLock sync.Mutex
 var visited  = make(map[string]bool)
 var output  = make(map[string]bool)
+
+var activeThreads int
+var sitesToVisit  = []string{originalDomain}
+
+var globalsLock sync.Mutex
+var condition = sync.NewCond(&globalsLock)
+
+//READ ONLY
+var rex = regexp.MustCompile(`(?i)<\s*a\s*href\s*=\s*('(\\'|[^'])*'|"(\\"|[^"])*"|[^ >]+)`)
+var ignore = regexp.MustCompile(`(javascript:(.*))|(mailto:(.*))|(.*)((\.pdf)|(#)|(.pptx)|(.docx)|(.xlsx))`)
 
 var originalDomain = os.Args[1:][0]
 var originalHost,_ = url.Parse(originalDomain)
 
-var sitesToVisit  = []string{originalDomain}
-var consume = etec3702.NewSemaphore(1)
-
-var rex = regexp.MustCompile(`(?i)<\s*a\s*href\s*=\s*('(\\'|[^'])*'|"(\\"|[^"])*"|[^ >]+)`)
-var ignore = regexp.MustCompile(`(mailto:(.*))|(.*)((\.pdf)|(#)|(.pptx)|(.docx)|(.xlsx))`)
-
-//BE SURE to use locks when accessing global variables, ya dumb fuck
-//for some reason, www.shawnee.edu is not the same hostname as shawnee.edu. wtf
-//ditto with things like myssu.shawnee.edu
-
-//test site:
-// selenium.ssucet.org:8001
-// ~50 links
-
-
 func main(){
 	
 	const numThreads = 4
-	var chans [numThreads]chan bool
-	
+	activeThreads = numThreads
 	for i:=0;i<numThreads;i++{
-		chans[i] = make(chan bool)
-		go spiderCrawl(chans[i])
+		go spiderCrawl()
 	}
 	
-	
-	for i:=0;i<numThreads;i++{
-		_ = <- chans[i]
+	globalsLock.Lock()
+	for activeThreads > 0{
+		condition.Wait()
 	}
+	globalsLock.Unlock()
+	
+	fmt.Println("Done,", len(output), "sites")
 }
 
-func spiderCrawl(c chan bool){
+func spiderCrawl(){
 
 	var hyperlink string
 	var currentSite string
@@ -57,20 +51,23 @@ func spiderCrawl(c chan bool){
 	for(true){
 		
 		//Consume
-		consume.Acquire()
-		sitesLock.Lock()
+		globalsLock.Lock()
+		activeThreads--
+		condition.Broadcast()
+		for len(sitesToVisit) == 0{
+			condition.Wait()
+		}
+		activeThreads++
+		currentSite = sitesToVisit[0]
+		sitesToVisit = sitesToVisit[1:]
+		condition.Broadcast()
+		globalsLock.Unlock()
 		
-		currentSite = sitesToVisit[0] //om nom nom
-		sitesToVisit = sitesToVisit[1:] //clean my plate
-		sitesLock.Unlock()
-		
-		//fmt.Println(currentSite)
-		
-		sitesLock.Lock()
+		globalsLock.Lock()
 		if !visited[currentSite]{
 		
 			visited[currentSite] = true
-			sitesLock.Unlock()			
+			globalsLock.Unlock()
 			
 			currentUrl,_ := url.Parse(currentSite)
 		
@@ -89,33 +86,25 @@ func spiderCrawl(c chan bool){
 						
 						
 						ignored = ignore.FindAllStringSubmatch(hyperlink, -1)
-						if(len(ignored) < 1 && len(hyperlink) > 1){
+						if(len(ignored) < 1){
 							
-							if hyperlink[0] == '/' {
-								if currentSite[len(currentSite)-1] == '/'{
-									currentSite = currentSite[:len(currentSite)-1]
-								}//so we don't get double slashes
-								hyperlink = originalDomain + hyperlink
-							}							
-							
-							//Produce
+							//Produce							
 							u3,err := url.Parse(hyperlink)
 							if err == nil{
+								u3 = originalHost.ResolveReference(u3)
+								hyperlink = u3.String()
 								if u3.Host == originalHost.Host{
-									sitesLock.Lock()
+									globalsLock.Lock()
 									sitesToVisit = append(sitesToVisit, hyperlink)
-									consume.Release()
-									sitesLock.Unlock()
-									//fmt.Println(hyperlink)
+									condition.Broadcast()
+									globalsLock.Unlock()
 								}else{//if new link to external site
-									sitesLock.Lock()
+									globalsLock.Lock()
 									if !output[hyperlink]{
-										//fmt.Println(u3.Host, originalHost.Host)
 										fmt.Println(hyperlink)
-										//fmt.Println(len(output))
 										output[hyperlink] = true
 									}
-									sitesLock.Unlock()
+									globalsLock.Unlock()
 								}
 							}
 						}
@@ -123,7 +112,7 @@ func spiderCrawl(c chan bool){
 				}
 			}
 		}else{
-			sitesLock.Unlock()
+			globalsLock.Unlock()
 		}
 	}
 }
