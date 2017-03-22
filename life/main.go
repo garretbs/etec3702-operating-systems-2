@@ -1,5 +1,6 @@
 package main
 
+import "etec3702"
 import "bufio"
 import "os"
 import "log"
@@ -7,36 +8,36 @@ import "fmt"
 import "image"
 import "image/gif"
 import "image/color"
+import "sync"
 
 
+const numThreads = 7
+
+var tmp [][]byte
+var src,dest = readInput(os.Args[1])
+var numrows = len(src)
+var numcols = len(src[0])
+var pic,pal =  makeGif()
+
+var globalsLock sync.Mutex
 
 
 func main(){
-    grid1,grid2 := readInput(os.Args[1]);
 
-    var src, dest, tmp [][]byte
-    src=grid1
-    dest=grid2
-    
-    numrows := len(src)
-    numcols := len(src[0])
-
-    pic,pal := makeGif(numrows,numcols)
-        
-    //let the game begin!
-    
-    for iters:=0;iters<200;iters++ {
-        updateState(src,dest,numrows,numcols);
-
-        outputAnimationFrame( &pic, &pal, dest, numrows, numcols );
-        
-        //swap roles of source and destination
-        tmp = src
-        src = dest
-        dest = tmp
-    }
-
-    //write output image
+	
+	//create threads
+	var chans [numThreads]chan bool
+	
+	for i:=0;i<numThreads;i++{
+		chans[i] = make(chan bool)
+		go lifeThread(i, chans[i]);
+	}
+	
+	for i:=0;i<numThreads;i++{//wait for all threads to finish all iterations
+		_ = <- chans[i]
+	}
+	
+	//write output image
     fp,err := os.Create("out.gif")
     if err != nil {
         log.Fatal("Could not open output")
@@ -44,6 +45,36 @@ func main(){
     gif.EncodeAll(fp,&pic)
     fp.Close()
     fmt.Println("Done")
+}
+
+func lifeThread(threadID int, c chan bool){
+	//let the game begin!
+    
+    for iters:=0;iters<200;iters++ {
+		
+        updateState(threadID);
+		
+		barrier();
+		
+		
+		//only one thread needs to do the things below
+		if(threadID == 0){
+			globalsLock.Lock()
+			outputAnimationFrame();
+			
+			//swap roles of source and destination
+			tmp = src
+			src = dest
+			dest = tmp
+			globalsLock.Unlock()
+			
+			
+		}
+		resetBarrier();
+		
+		
+    }
+	c <- true
 }
 
 func readInput(filename string) ([][]byte, [][]byte) {
@@ -55,44 +86,44 @@ func readInput(filename string) ([][]byte, [][]byte) {
     
     //read the input file, dimensioning both buffers simultaneously
     scanner := bufio.NewScanner(fp)
-    var grid1 [][]byte;
-    var grid2 [][]byte;
+    var g1 [][]byte;
+    var g2 [][]byte;
     
     for scanner.Scan() {
         line := scanner.Text()
-        grid1 = append(grid1,[]byte(line))
-        grid2 = append(grid2,[]byte(line))
+        g1 = append(g1,[]byte(line))
+        g2 = append(g2,[]byte(line))
     }
     
-    for r := 0; r < len(grid1); r++ {
-        for c:=0;c<len(grid1[r]);c++{
-            if grid1[r][c] == 42 {
-                grid1[r][c] = 1
+    for r := 0; r < len(g1); r++ {
+        for c:=0;c<len(g1[r]);c++{
+            if g1[r][c] == 42 {
+                g1[r][c] = 1
             } else {
-                grid1[r][c] = 0
+                g1[r][c] = 0
             }
         }
     }
-    return grid1,grid2
+    return g1,g2
 }
 
 
-func makeGif(numrows int , numcols int ) (gif.GIF, color.Palette) {
+func makeGif() (gif.GIF, color.Palette) {
     
     //create a color palette for the GIF.
     //color 0 = black, 1=white
-    var pal color.Palette
+    var palette color.Palette
     var pix color.RGBA
     pix.R = 0
     pix.G = 0
     pix.B = 0
     pix.A = 255
-    pal = append(pal,pix)
+    palette = append(palette,pix)
     pix.R = 255
     pix.G = 255
     pix.B = 255
     pix.A = 255
-    pal = append(pal,pix)
+    palette = append(palette,pix)
     
     var g gif.GIF;
     
@@ -104,11 +135,12 @@ func makeGif(numrows int , numcols int ) (gif.GIF, color.Palette) {
     g.Config.Width = width
     g.Config.Height = height
     g.LoopCount = -1
-    return g,pal
+    return g,palette
 }
 
-func updateState(src [][]byte, dest [][]byte, numrows int, numcols int ){
-    for r:=0;r<numrows;r++ {
+func updateState(threadID int ){
+	//needs to only do certain rows based on threadID
+    for r:=threadID;r<numrows;r+=numThreads {
         for c:=0;c<numcols;c++ {
             var up,down,left,right int
             up = r-1
@@ -128,6 +160,7 @@ func updateState(src [][]byte, dest [][]byte, numrows int, numcols int ){
                 right = 0
             }
             
+			globalsLock.Lock()
             n := src[up][c]
             s := src[down][c]
             w := src[r][left]
@@ -137,6 +170,8 @@ func updateState(src [][]byte, dest [][]byte, numrows int, numcols int ){
             sw := src[down][left]
             se := src[down][right]
             total := nw+n+ne+w+e+sw+s+se
+			
+			
             if total < 2 {
                 dest[r][c]=0
             } else if total == 2 {
@@ -146,18 +181,18 @@ func updateState(src [][]byte, dest [][]byte, numrows int, numcols int ){
             } else {
                 dest[r][c] = 0
             }
+			globalsLock.Unlock()
         }
     }
 }
 
-func outputAnimationFrame(g *gif.GIF, pal *color.Palette, 
-                data [][]byte, numrows int, numcols int ){
-                    
-    img := image.NewPaletted( 
-        image.Rectangle{ 
-            image.Point{0,0}, 
-            image.Point{g.Config.Width,g.Config.Height} },
-        *pal )
+func outputAnimationFrame(){
+	
+	img := image.NewPaletted( 
+		image.Rectangle{ 
+			image.Point{0,0}, 
+			image.Point{pic.Config.Width,pic.Config.Height} },
+			pal )
     
     multiplier := 8
     
@@ -168,7 +203,7 @@ func outputAnimationFrame(g *gif.GIF, pal *color.Palette,
             pc=0
             for c:=0;c<numcols;c++ {
                 for cc:=0;cc<multiplier; cc,pc = cc+1,pc+1 {
-                    if data[r][c] == 0 {
+                    if dest[r][c] == 0 {
                         img.SetColorIndex(pc,pr,0)
                     } else {
                         img.SetColorIndex(pc,pr,1)
@@ -178,7 +213,37 @@ func outputAnimationFrame(g *gif.GIF, pal *color.Palette,
         }
     }
 
-    g.Image = append(g.Image,img)
-    g.Delay = append(g.Delay, 10)
+    pic.Image = append(pic.Image,img)
+    pic.Delay = append(pic.Delay, 10)
 }
-    
+
+//Barrier stuff
+var sem1 = etec3702.NewSemaphore(0)
+var sem2 = etec3702.NewSemaphore(0)
+var barrierLock sync.Mutex
+var threadsWaiting = numThreads
+
+func barrier(){
+	barrierLock.Lock()
+	threadsWaiting--
+	if threadsWaiting == 0{
+		for i:=0;i<numThreads;i++{
+			sem1.Release()
+		}
+	}
+	barrierLock.Unlock()
+	sem1.Acquire()
+}
+
+func resetBarrier(){
+	barrierLock.Lock()
+	threadsWaiting++
+	if threadsWaiting == numThreads{
+		for i:=0;i<numThreads;i++{
+			sem2.Release()
+		}
+	}
+	barrierLock.Unlock()
+	sem2.Acquire()
+}
+
